@@ -1,0 +1,16 @@
+[package]
+name = "daken-yew-example"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+daken-rs = { path = "../.." }
+yew = { version = "0.21", features = ["csr"] }
+
+[dependencies.web-sys]
+version = "0.3"
+features = [
+    "HtmlInputElement",
+    "KeyboardEvent",
+]

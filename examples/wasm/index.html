@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>daken-rs WASM example</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="app">
+      <section class="play">
+        <div class="meta">
+          <label>
+            Target
+            <input id="target" value="タイピング" />
+          </label>
+          <button id="reset" type="button">Reset</button>
+        </div>
+
+        <div class="target" id="targetView">タイピング</div>
+        <div class="typed" id="typed"></div>
+        <div class="status" id="status">Press romaji keys</div>
+        <div class="next" id="next"></div>
+      </section>
+    </main>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
