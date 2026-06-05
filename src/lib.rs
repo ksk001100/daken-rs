@@ -484,6 +484,10 @@ fn base_romaji(kana: &str) -> Option<Vec<&'static str>> {
 }
 
 fn n_romaji(next: Option<&char>) -> Vec<&'static str> {
+    if next.is_none() {
+        return vec!["nn", "xn"];
+    }
+
     let next_requires_escape = next.is_some_and(|ch| {
         let normalized = normalize_kana(&ch.to_string());
         let mut chars = normalized.chars();
@@ -604,6 +608,9 @@ mod tests {
         assert!(matches_romaji("ほんあ", "honna"));
         assert!(matches_romaji("ほんあ", "hon'a"));
         assert!(!matches_romaji("ほんあ", "hona"));
+        assert!(matches_romaji("ほん", "honn"));
+        assert!(matches_romaji("ほん", "hoxn"));
+        assert!(!matches_romaji("ほん", "hon"));
     }
 
     #[test]
