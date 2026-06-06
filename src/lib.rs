@@ -1,3 +1,74 @@
+//! Japanese romaji input matcher for typing games.
+//!
+//! `daken-rs` judges romaji input incrementally, one key at a time. It is built
+//! for typing-game loops where rejected keys should count as misses without
+//! advancing the current input state.
+//!
+//! # Quick Start
+//!
+//! ```rust
+//! use daken_rs::{KeyResult, RomajiInput};
+//!
+//! let mut input = RomajiInput::new("かった");
+//!
+//! assert_eq!(input.input('k'), KeyResult::Accepted);
+//! assert_eq!(input.input('a'), KeyResult::Accepted);
+//! assert_eq!(input.input('t'), KeyResult::Accepted);
+//! assert_eq!(input.input('t'), KeyResult::Accepted);
+//! assert_eq!(input.input('a'), KeyResult::Completed);
+//! ```
+//!
+//! # Miss Handling
+//!
+//! [`KeyResult::Rejected`] does not mutate matcher progress. This lets game
+//! code increment a miss counter and continue from the same position.
+//!
+//! ```rust
+//! use daken_rs::{KeyResult, RomajiInput};
+//!
+//! let mut input = RomajiInput::new("かき");
+//!
+//! assert_eq!(input.input('k'), KeyResult::Accepted);
+//! assert_eq!(input.input('x'), KeyResult::Rejected);
+//! assert_eq!(input.typed(), "k");
+//!
+//! assert_eq!(input.input('a'), KeyResult::Accepted);
+//! assert_eq!(input.input('k'), KeyResult::Accepted);
+//! assert_eq!(input.input('i'), KeyResult::Completed);
+//! ```
+//!
+//! # UI Highlighting
+//!
+//! Use [`RomajiInput::target_parts`] when coloring confirmed and unconfirmed
+//! target text.
+//!
+//! ```rust
+//! use daken_rs::{KeyResult, RomajiInput};
+//!
+//! let mut input = RomajiInput::new("しゃしん");
+//!
+//! assert_eq!(input.input('s'), KeyResult::Accepted);
+//! assert_eq!(input.input('h'), KeyResult::Accepted);
+//! assert_eq!(input.target_parts(), ("", "しゃしん"));
+//!
+//! assert_eq!(input.input('a'), KeyResult::Accepted);
+//! assert_eq!(input.target_parts(), ("しゃ", "しん"));
+//! assert_eq!(input.confirmed_target_chars(), 2);
+//! ```
+//!
+//! # Supported Input
+//!
+//! - Hiragana and katakana targets.
+//! - Common romaji alternatives such as `shi`/`si`, `chi`/`ti`, and `tsu`/`tu`.
+//! - Yoon, small-kana spellings, doubled consonants for `っ`, and
+//!   context-aware `ん`.
+//! - Full-width ASCII letters, numbers, spaces, and common symbols.
+//!
+//! # Language
+//!
+//! The standard README is in English for crates.io and docs.rs. A Japanese
+//! README is available in the repository as `README.ja.md`.
+
 use std::collections::HashSet;
 
 /// Result of feeding one key into [`RomajiInput`].

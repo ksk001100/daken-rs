@@ -2,6 +2,22 @@
 name = "daken-rs"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
+authors = ["ksk001100 <hm.pudding0715@gmail.com>"]
+description = "Japanese romaji input matcher for typing games"
+readme = "README.md"
+repository = "https://github.com/ksk001100/daken-rs"
 license = "MIT"
+keywords = ["romaji", "typing", "japanese", "kana", "game"]
+categories = ["game-development", "text-processing", "wasm"]
+exclude = [
+    "dist/**",
+    "target/**",
+    "Cargo.lock",
+    "examples/**/Cargo.lock",
+    "examples/**/target/**",
+    "examples/wasm/pkg/**",
+    "examples/**/dist/**",
+]
 
 [dependencies]

@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  library:
+    name: Library
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust components
+        run: rustup component add rustfmt clippy
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Run Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Run tests
+        run: cargo test
+
+      - name: Build documentation
+        run: cargo doc --no-deps
+
+      - name: Verify package
+        run: cargo package
+
+  msrv:
+    name: MSRV
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust 1.85.0
+        run: rustup toolchain install 1.85.0 --profile minimal
+
+      - name: Check with MSRV
+        run: cargo +1.85.0 check
+
+  examples:
+    name: Examples
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install wasm target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Check console example
+        run: cargo check --manifest-path examples/console/Cargo.toml
+
+      - name: Check raw WASM example
+        run: cargo check --target wasm32-unknown-unknown --manifest-path examples/wasm/Cargo.toml
+
+      - name: Check Yew example
+        run: cargo check --target wasm32-unknown-unknown --manifest-path examples/yew/Cargo.toml
