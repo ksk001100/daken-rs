@@ -32,6 +32,10 @@ assert_eq!(input.input('a'), KeyResult::Completed);
 - `input(char)` consumes one key and returns `Accepted`, `Completed`, or `Rejected`.
 - `input_str(&str)` consumes a whole string until it is completed or rejected.
 - `matches_romaji(target, input)` checks whether an input is one complete romanization.
+- `confirmed_target_chars()` returns the confirmed target character count for UI highlighting.
+- `confirmed_target_byte_index()` returns a byte index that can safely split `target()`.
+- `target_parts()` returns the confirmed and unconfirmed target slices.
+- `candidate_target_positions()` returns all current candidate target character positions.
 
 ## Examples
 

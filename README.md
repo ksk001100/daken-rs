@@ -32,6 +32,10 @@ assert_eq!(input.input('a'), KeyResult::Completed);
 - `input(char)` で1キー入力し、`Accepted` / `Completed` / `Rejected` を返します。
 - `input_str(&str)` で文字列をまとめて入力できます。
 - `matches_romaji(target, input)` で入力文字列がターゲットの完全なローマ字入力か確認できます。
+- `confirmed_target_chars()` で、かな target 側の確定済み文字数を取得できます。
+- `confirmed_target_byte_index()` で、`target()` を安全に分割するための byte index を取得できます。
+- `target_parts()` で、target の確定済み部分と未確定部分を取得できます。
+- `candidate_target_positions()` で、現在の全候補状態が target のどの文字位置にいるかを取得できます。
 
 ## ミス時の扱い
 

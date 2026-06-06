@@ -19,6 +19,7 @@ pub enum KeyResult {
 #[derive(Debug, Clone)]
 pub struct RomajiInput {
     target: String,
+    target_byte_indices: Vec<usize>,
     graph: Vec<Vec<Edge>>,
     states: HashSet<State>,
     typed: String,
@@ -28,12 +29,14 @@ impl RomajiInput {
     /// Builds a matcher from hiragana or katakana text.
     pub fn new(target: impl Into<String>) -> Self {
         let target = normalize_kana(&target.into());
+        let target_byte_indices = target_byte_indices(&target);
         let graph = compile_graph(&target);
         let mut states = HashSet::new();
         states.insert(State::Node(0));
 
         Self {
             target,
+            target_byte_indices,
             graph,
             states,
             typed: String::new(),
@@ -60,6 +63,44 @@ impl RomajiInput {
     /// Returns true when the current input has completed the target.
     pub fn is_completed(&self) -> bool {
         self.states.contains(&State::Node(self.graph.len() - 1))
+    }
+
+    /// Returns how many normalized target characters are confirmed.
+    ///
+    /// When the current romaji is still inside one kana unit, the unit is not
+    /// counted as confirmed yet.
+    pub fn confirmed_target_chars(&self) -> usize {
+        self.candidate_target_positions()
+            .into_iter()
+            .min()
+            .unwrap_or(0)
+    }
+
+    /// Returns the byte index that splits [`Self::target`] at the confirmed
+    /// target character position.
+    pub fn confirmed_target_byte_index(&self) -> usize {
+        self.target_byte_indices[self.confirmed_target_chars()]
+    }
+
+    /// Splits [`Self::target`] into confirmed and unconfirmed parts.
+    pub fn target_parts(&self) -> (&str, &str) {
+        self.target.split_at(self.confirmed_target_byte_index())
+    }
+
+    /// Returns sorted unique target character positions for all current
+    /// candidates.
+    ///
+    /// Candidates that are still matching a multi-key romaji edge report the
+    /// edge's starting target position.
+    pub fn candidate_target_positions(&self) -> Vec<usize> {
+        let mut positions = self
+            .states
+            .iter()
+            .map(|state| state.target_position())
+            .collect::<Vec<_>>();
+        positions.sort_unstable();
+        positions.dedup();
+        positions
     }
 
     /// Tries to consume one keyboard character.
@@ -159,6 +200,15 @@ struct EdgeId {
 enum State {
     Node(usize),
     Edge { edge: EdgeId, offset: usize },
+}
+
+impl State {
+    fn target_position(&self) -> usize {
+        match *self {
+            Self::Node(node) => node,
+            Self::Edge { edge, .. } => edge.from,
+        }
+    }
 }
 
 fn advance_states(
@@ -537,6 +587,15 @@ fn normalize_kana(input: &str) -> String {
         .collect()
 }
 
+fn target_byte_indices(target: &str) -> Vec<usize> {
+    let mut indices = target
+        .char_indices()
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    indices.push(target.len());
+    indices
+}
+
 fn normalize_key(key: char) -> Option<char> {
     normalize_ascii_like(key).or_else(|| key.is_ascii().then_some(key.to_ascii_lowercase()))
 }
@@ -648,6 +707,59 @@ mod tests {
         assert_eq!(input.input('a'), KeyResult::Accepted);
         assert_eq!(input.input('k'), KeyResult::Accepted);
         assert_eq!(input.input('i'), KeyResult::Completed);
+    }
+
+    #[test]
+    fn exposes_confirmed_target_parts() {
+        let mut input = RomajiInput::new("しゃしん");
+
+        assert_eq!(input.confirmed_target_chars(), 0);
+        assert_eq!(input.confirmed_target_byte_index(), 0);
+        assert_eq!(input.target_parts(), ("", "しゃしん"));
+        assert_eq!(input.candidate_target_positions(), vec![0]);
+
+        assert_eq!(input.input('s'), KeyResult::Accepted);
+        assert_eq!(input.confirmed_target_chars(), 0);
+        assert_eq!(input.target_parts(), ("", "しゃしん"));
+        assert_eq!(input.candidate_target_positions(), vec![0]);
+
+        assert_eq!(input.input('h'), KeyResult::Accepted);
+        assert_eq!(input.confirmed_target_chars(), 0);
+        assert_eq!(input.target_parts(), ("", "しゃしん"));
+
+        assert_eq!(input.input('a'), KeyResult::Accepted);
+        assert_eq!(input.confirmed_target_chars(), 2);
+        assert_eq!(input.confirmed_target_byte_index(), "しゃ".len());
+        assert_eq!(input.target_parts(), ("しゃ", "しん"));
+        assert_eq!(input.candidate_target_positions(), vec![2]);
+
+        assert_eq!(input.input('s'), KeyResult::Accepted);
+        assert_eq!(input.confirmed_target_chars(), 2);
+
+        assert_eq!(input.input('i'), KeyResult::Accepted);
+        assert_eq!(input.confirmed_target_chars(), 3);
+        assert_eq!(input.target_parts(), ("しゃし", "ん"));
+
+        assert_eq!(input.input('n'), KeyResult::Accepted);
+        assert_eq!(input.confirmed_target_chars(), 3);
+        assert_eq!(input.target_parts(), ("しゃし", "ん"));
+
+        assert_eq!(input.input('n'), KeyResult::Completed);
+        assert_eq!(input.confirmed_target_chars(), 4);
+        assert_eq!(input.target_parts(), ("しゃしん", ""));
+        assert_eq!(input.candidate_target_positions(), vec![4]);
+    }
+
+    #[test]
+    fn confirmed_target_position_ignores_rejected_keys() {
+        let mut input = RomajiInput::new("かな");
+
+        assert_eq!(input.input('k'), KeyResult::Accepted);
+        assert_eq!(input.confirmed_target_chars(), 0);
+        assert_eq!(input.input('x'), KeyResult::Rejected);
+        assert_eq!(input.confirmed_target_chars(), 0);
+        assert_eq!(input.input('a'), KeyResult::Accepted);
+        assert_eq!(input.confirmed_target_chars(), 1);
     }
 
     #[test]
