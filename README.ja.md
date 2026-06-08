@@ -22,9 +22,12 @@ assert_eq!(input.input('a'), KeyResult::Completed);
 - ミスしたキーは進捗に反映されないため、ゲーム側でミス数だけ増やして続きから入力できます。
 - ひらがな・カタカナのターゲットに対応しています。
 - 全角英数字、全角スペース、よく使う全角記号を通常のキーボード入力として扱えます。
+- 半角カナ、`ゐ` / `ゑ`、追加の句読点も正規化できます。
 - `shi` / `si`、`chi` / `ti`、`tsu` / `tu` などの表記ゆれを受け付けます。
 - 拗音、小書きかな、促音 `っ`、文脈依存の `ん` に対応しています。
 - `next_keys()` で現在押せるキーを取得できます。
+- `remaining_romaji_candidates()` で現在位置から完成までの候補を取得できます。
+- `TypingSession` でミス数と入力履歴をまとめて管理できます。
 
 ## API
 
@@ -36,6 +39,14 @@ assert_eq!(input.input('a'), KeyResult::Completed);
 - `confirmed_target_byte_index()` で、`target()` を安全に分割するための byte index を取得できます。
 - `target_parts()` で、target の確定済み部分と未確定部分を取得できます。
 - `candidate_target_positions()` で、現在の全候補状態が target のどの文字位置にいるかを取得できます。
+- `progress()` で、確定済み文字数、全体文字数、入力済みキー数、完了状態をまとめて取得できます。
+- `remaining_romaji_candidates()` で、現在の入力状態から完成までのローマ字候補を取得できます。
+- `TypingSession::new(target)` で、ミス数と入力履歴つきの高レベルセッションを作れます。
+
+## Feature flags
+
+- `serde`: `KeyResult`、`Progress`、`KeyStroke`、`TypingSession`、`RomajiInput` などに `Serialize` / `Deserialize` を追加します。
+- `wasm-bindgen`: JavaScript から直接使える `WasmRomajiInput` ラッパーを有効化します。
 
 ## ミス時の扱い
 

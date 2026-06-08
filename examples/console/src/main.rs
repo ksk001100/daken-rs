@@ -1,6 +1,6 @@
 use std::io::{self, Write};
 
-use daken_rs::{KeyResult, RomajiInput};
+use daken_rs::{KeyResult, TypingSession};
 
 const DEFAULT_TARGETS: &[&str] = &["タイピング", "しんぶん", "きょうはいいてんき", "マッチ"];
 
@@ -10,26 +10,24 @@ fn main() -> io::Result<()> {
     println!();
 
     let target = choose_target()?;
-    let mut input = RomajiInput::new(target);
-    let mut misses = 0usize;
+    let mut session = TypingSession::new(target);
 
     loop {
-        render(&input, misses);
+        render(&session);
 
         let Some(line) = prompt("input> ")? else {
             println!("input ended before completion.");
             return Ok(());
         };
         for key in line.chars() {
-            match input.input(key) {
+            match session.input(key) {
                 KeyResult::Accepted => {}
                 KeyResult::Completed => {
-                    render(&input, misses);
+                    render(&session);
                     println!("completed!");
                     return Ok(());
                 }
                 KeyResult::Rejected => {
-                    misses += 1;
                     println!("miss: `{key}`");
                 }
             }
@@ -50,10 +48,10 @@ fn choose_target() -> io::Result<String> {
     };
     let trimmed = selected.trim();
 
-    if let Ok(number) = trimmed.parse::<usize>() {
-        if let Some(target) = DEFAULT_TARGETS.get(number.saturating_sub(1)) {
-            return Ok((*target).to_string());
-        }
+    if let Ok(number) = trimmed.parse::<usize>()
+        && let Some(target) = DEFAULT_TARGETS.get(number.saturating_sub(1))
+    {
+        return Ok((*target).to_string());
     }
 
     if trimmed.is_empty() {
@@ -63,15 +61,31 @@ fn choose_target() -> io::Result<String> {
     }
 }
 
-fn render(input: &RomajiInput, misses: usize) {
+fn render(session: &TypingSession) {
+    let matcher = session.matcher();
+    let progress = matcher.progress();
+
     println!();
-    println!("target : {}", input.target());
-    println!("typed  : {}", input.typed());
+    println!("target : {}", matcher.target());
+    println!("typed  : {}", matcher.typed());
+    println!(
+        "progress: {}/{} target chars, {} typed keys",
+        progress.confirmed_target_chars, progress.total_target_chars, progress.typed_keys
+    );
     println!(
         "next   : {}",
-        input.next_keys().into_iter().collect::<String>()
+        matcher.next_keys().into_iter().collect::<String>()
     );
-    println!("misses : {misses}");
+    println!(
+        "remain : {}",
+        matcher
+            .remaining_romaji_candidates()
+            .into_iter()
+            .take(5)
+            .collect::<Vec<_>>()
+            .join(" / ")
+    );
+    println!("misses : {}", session.misses());
 }
 
 fn prompt(label: &str) -> io::Result<Option<String>> {

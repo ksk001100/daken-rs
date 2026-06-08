@@ -72,6 +72,10 @@ button {
   overflow-wrap: anywhere;
 }
 
+.confirmed {
+  color: #0d5c63;
+}
+
 .typed {
   min-height: 44px;
   margin-top: 18px;

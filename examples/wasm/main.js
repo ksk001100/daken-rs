@@ -16,11 +16,11 @@ const targetView = document.querySelector("#targetView");
 const typedView = document.querySelector("#typed");
 const statusView = document.querySelector("#status");
 const nextView = document.querySelector("#next");
+const remainingView = document.querySelector("#remaining");
 const resetButton = document.querySelector("#reset");
 
 let matcherId = 0;
 let typed = "";
-let misses = 0;
 
 function createMatcher(target) {
   const bytes = encoder.encode(target);
@@ -35,15 +35,20 @@ function createMatcher(target) {
 function reset() {
   matcherId = createMatcher(targetInput.value);
   typed = "";
-  misses = 0;
   render("Ready");
 }
 
 function render(status) {
+  const confirmed = wasm.matcher_confirmed_target_chars(matcherId);
+  const total = wasm.matcher_total_target_chars(matcherId);
+  const misses = wasm.matcher_misses(matcherId);
+  const remaining = wasm.matcher_remaining_candidate_count(matcherId);
+
   targetView.textContent = targetInput.value;
   typedView.textContent = typed || " ";
-  statusView.textContent = `${status} / misses ${misses}`;
+  statusView.textContent = `${status} / misses ${misses} / progress ${confirmed}/${total}`;
   nextView.textContent = nextKeys().join(" ");
+  remainingView.textContent = `${remaining} remaining candidates`;
 }
 
 function nextKeys() {
@@ -73,9 +78,7 @@ window.addEventListener("keydown", (event) => {
   const key = event.key.toLowerCase();
   const result = wasm.matcher_input(matcherId, key.codePointAt(0));
 
-  if (result === 2) {
-    misses += 1;
-  } else {
+  if (result !== 2) {
     typed += key;
   }
 

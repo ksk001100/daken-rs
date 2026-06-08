@@ -20,4 +20,11 @@ exclude = [
     "examples/**/dist/**",
 ]
 
+[features]
+default = []
+serde = ["dep:serde"]
+wasm-bindgen = ["dep:wasm-bindgen"]
+
 [dependencies]
+serde = { version = "1", features = ["derive"], optional = true }
+wasm-bindgen = { version = "0.2", optional = true }

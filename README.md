@@ -22,9 +22,12 @@ assert_eq!(input.input('a'), KeyResult::Completed);
 - Rejected keys do not mutate current progress.
 - Hiragana and katakana targets are accepted.
 - Full-width ASCII letters, numbers, spaces, and common symbols are accepted as normal keyboard input.
+- Half-width kana, `ゐ` / `ゑ`, and additional common punctuation are normalized.
 - Common alternatives are accepted, including `shi`/`si`, `chi`/`ti`, `tsu`/`tu`.
 - Yoon, small-kana spellings, doubled consonants for `っ`, and context-aware `ん`.
 - `next_keys()` exposes currently valid next keys for UI hints.
+- `remaining_romaji_candidates()` exposes completion candidates from the current state.
+- `TypingSession` can track misses and key history for game loops.
 
 ## Quick API
 
@@ -36,6 +39,14 @@ assert_eq!(input.input('a'), KeyResult::Completed);
 - `confirmed_target_byte_index()` returns a byte index that can safely split `target()`.
 - `target_parts()` returns the confirmed and unconfirmed target slices.
 - `candidate_target_positions()` returns all current candidate target character positions.
+- `progress()` returns confirmed target characters, total target characters, typed key count, and completion state.
+- `remaining_romaji_candidates()` returns romaji suffixes that can complete the target.
+- `TypingSession::new(target)` creates a high-level session with miss count and input history.
+
+## Feature flags
+
+- `serde`: enables `Serialize` / `Deserialize` for `KeyResult`, `Progress`, `KeyStroke`, `TypingSession`, `RomajiInput`, and internal matcher state.
+- `wasm-bindgen`: enables the JavaScript-friendly `WasmRomajiInput` wrapper.
 
 ## Miss Handling
 

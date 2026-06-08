@@ -69,9 +69,15 @@
 //! The standard README is in English for crates.io and docs.rs. A Japanese
 //! README is available in the repository as `README.ja.md`.
 
-use std::collections::HashSet;
+#[cfg(feature = "wasm-bindgen")]
+use wasm_bindgen::prelude::*;
+
+use std::collections::{HashMap, HashSet};
 
 /// Result of feeding one key into [`RomajiInput`].
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(feature = "wasm-bindgen", wasm_bindgen)]
+#[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyResult {
     /// The key can still lead to a valid romanization.
@@ -82,11 +88,119 @@ pub enum KeyResult {
     Rejected,
 }
 
+/// Snapshot of matcher progress.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Progress {
+    /// Number of normalized target characters confirmed.
+    pub confirmed_target_chars: usize,
+    /// Total number of normalized target characters.
+    pub total_target_chars: usize,
+    /// Number of accepted ASCII keys typed so far.
+    pub typed_keys: usize,
+    /// Whether the target has been completed.
+    pub completed: bool,
+}
+
+/// One processed key in a [`TypingSession`].
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KeyStroke {
+    /// Original key supplied by the caller.
+    pub original: char,
+    /// Normalized key accepted by the matcher, if any.
+    pub normalized: Option<char>,
+    /// Result returned for this key.
+    pub result: KeyResult,
+}
+
+/// High-level typing session that tracks misses and input history.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Debug, Clone)]
+pub struct TypingSession {
+    matcher: RomajiInput,
+    misses: usize,
+    history: Vec<KeyStroke>,
+}
+
+impl TypingSession {
+    /// Builds a session from hiragana or katakana text.
+    pub fn new(target: impl Into<String>) -> Self {
+        Self {
+            matcher: RomajiInput::new(target),
+            misses: 0,
+            history: Vec::new(),
+        }
+    }
+
+    /// Returns the underlying matcher.
+    pub fn matcher(&self) -> &RomajiInput {
+        &self.matcher
+    }
+
+    /// Returns the underlying matcher mutably.
+    pub fn matcher_mut(&mut self) -> &mut RomajiInput {
+        &mut self.matcher
+    }
+
+    /// Returns how many rejected keys have been entered.
+    pub fn misses(&self) -> usize {
+        self.misses
+    }
+
+    /// Returns all processed key strokes, including rejected keys.
+    pub fn history(&self) -> &[KeyStroke] {
+        &self.history
+    }
+
+    /// Clears input, miss count, and history.
+    pub fn reset(&mut self) {
+        self.matcher.reset();
+        self.misses = 0;
+        self.history.clear();
+    }
+
+    /// Tries to consume one keyboard character and records the result.
+    pub fn input(&mut self, key: char) -> KeyResult {
+        let normalized = normalize_key(key);
+        let result = self.matcher.input(key);
+        if result == KeyResult::Rejected {
+            self.misses += 1;
+        }
+        self.history.push(KeyStroke {
+            original: key,
+            normalized: normalized.filter(|_| result != KeyResult::Rejected),
+            result,
+        });
+        result
+    }
+
+    /// Tries to consume a whole string and returns the first rejected character,
+    /// if any.
+    pub fn input_str(&mut self, input: &str) -> Result<KeyResult, char> {
+        let mut last = if self.matcher.is_completed() {
+            KeyResult::Completed
+        } else {
+            KeyResult::Accepted
+        };
+
+        for key in input.chars() {
+            last = self.input(key);
+            if last == KeyResult::Rejected {
+                return Err(key);
+            }
+        }
+
+        Ok(last)
+    }
+}
+
 /// Incremental romaji input matcher for typing games.
 ///
 /// The matcher accepts common Hepburn and Kunrei-style alternatives such as
 /// `shi`/`si`, `chi`/`ti`, `tsu`/`tu`, `kya`, small-kana spellings like `xya`,
 /// doubled consonants for `っ`, and context-aware `ん`.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone)]
 pub struct RomajiInput {
     target: String,
@@ -174,6 +288,46 @@ impl RomajiInput {
         positions
     }
 
+    /// Returns a snapshot of matcher progress.
+    pub fn progress(&self) -> Progress {
+        Progress {
+            confirmed_target_chars: self.confirmed_target_chars(),
+            total_target_chars: self.target_byte_indices.len() - 1,
+            typed_keys: self.typed.chars().count(),
+            completed: self.is_completed(),
+        }
+    }
+
+    /// Returns sorted unique romaji suffixes that can complete the target.
+    ///
+    /// If the current input is in the middle of a romaji edge, each candidate
+    /// starts with the still-untyped part of that edge.
+    pub fn remaining_romaji_candidates(&self) -> Vec<String> {
+        let mut memo = HashMap::new();
+        let mut candidates = HashSet::new();
+
+        for state in &self.states {
+            match *state {
+                State::Node(node) => {
+                    for suffix in romaji_suffixes_from_node(&self.graph, node, &mut memo) {
+                        candidates.insert(suffix);
+                    }
+                }
+                State::Edge { edge, offset } => {
+                    let graph_edge = self.graph_edge(edge);
+                    let remainder = edge_label_suffix(&graph_edge.label, offset);
+                    for suffix in romaji_suffixes_from_node(&self.graph, graph_edge.to, &mut memo) {
+                        candidates.insert(format!("{remainder}{suffix}"));
+                    }
+                }
+            }
+        }
+
+        let mut candidates = candidates.into_iter().collect::<Vec<_>>();
+        candidates.sort_unstable();
+        candidates
+    }
+
     /// Tries to consume one keyboard character.
     ///
     /// Rejected keys do not mutate the matcher, which makes it convenient to
@@ -255,18 +409,21 @@ pub fn matches_romaji(target: &str, input: &str) -> bool {
         .is_ok_and(|result| result == KeyResult::Completed)
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone)]
 struct Edge {
     to: usize,
     label: String,
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct EdgeId {
     from: usize,
     index: usize,
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum State {
     Node(usize),
@@ -294,7 +451,7 @@ fn advance_states(
             State::Node(node) => {
                 for (index, edge) in graph[node].iter().enumerate() {
                     if edge.label.starts_with(key) {
-                        if edge.label.len() == 1 {
+                        if edge_label_len(&edge.label) == 1 {
                             next.insert(State::Node(edge.to));
                         } else {
                             next.insert(State::Edge {
@@ -308,7 +465,7 @@ fn advance_states(
             State::Edge { edge, offset } => {
                 let graph_edge = &graph[edge.from][edge.index];
                 if graph_edge.label.chars().nth(offset) == Some(key) {
-                    if offset + 1 == graph_edge.label.len() {
+                    if offset + 1 == edge_label_len(&graph_edge.label) {
                         next.insert(State::Node(graph_edge.to));
                     } else {
                         next.insert(State::Edge {
@@ -322,6 +479,41 @@ fn advance_states(
     }
 
     (!next.is_empty()).then_some(next)
+}
+
+fn romaji_suffixes_from_node(
+    graph: &[Vec<Edge>],
+    node: usize,
+    memo: &mut HashMap<usize, Vec<String>>,
+) -> Vec<String> {
+    if let Some(cached) = memo.get(&node) {
+        return cached.clone();
+    }
+
+    let suffixes = if node + 1 == graph.len() {
+        vec![String::new()]
+    } else {
+        let mut suffixes = Vec::new();
+        for edge in &graph[node] {
+            for suffix in romaji_suffixes_from_node(graph, edge.to, memo) {
+                suffixes.push(format!("{}{suffix}", edge.label));
+            }
+        }
+        suffixes.sort_unstable();
+        suffixes.dedup();
+        suffixes
+    };
+
+    memo.insert(node, suffixes.clone());
+    suffixes
+}
+
+fn edge_label_len(label: &str) -> usize {
+    label.chars().count()
+}
+
+fn edge_label_suffix(label: &str, offset: usize) -> String {
+    label.chars().skip(offset).collect()
 }
 
 fn compile_graph(target: &str) -> Vec<Vec<Edge>> {
@@ -479,6 +671,8 @@ fn base_romaji(kana: &str) -> Option<Vec<&'static str>> {
         "れ" => vec!["re"],
         "ろ" => vec!["ro"],
         "わ" => vec!["wa"],
+        "ゐ" => vec!["wi"],
+        "ゑ" => vec!["we"],
         "を" => vec!["wo"],
         "ゎ" => vec!["xwa", "lwa"],
         "ん" => vec!["n", "nn", "xn"],
@@ -652,10 +846,29 @@ fn is_small_y(ch: char) -> bool {
 }
 
 fn normalize_kana(input: &str) -> String {
-    input
-        .chars()
-        .map(|ch| normalize_target_char(ch).unwrap_or(ch))
-        .collect()
+    let mut normalized = String::new();
+    let mut chars = input.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if let Some(base) = normalize_halfwidth_kana_char(ch) {
+            let composed = match chars.peek().copied() {
+                Some('ﾞ') => {
+                    chars.next();
+                    apply_kana_voicing(base).unwrap_or(base)
+                }
+                Some('ﾟ') => {
+                    chars.next();
+                    apply_kana_handakuten(base).unwrap_or(base)
+                }
+                _ => base,
+            };
+            normalized.push(composed);
+        } else {
+            normalized.push(normalize_target_char(ch).unwrap_or(ch));
+        }
+    }
+
+    normalized
 }
 
 fn target_byte_indices(target: &str) -> Vec<usize> {
@@ -676,9 +889,122 @@ fn normalize_target_char(ch: char) -> Option<char> {
         'ヵ' => Some('か'),
         'ヶ' => Some('け'),
         'ヴ' => Some('ゔ'),
+        'ヰ' => Some('ゐ'),
+        'ヱ' => Some('ゑ'),
         'ァ'..='ヶ' => char::from_u32(ch as u32 - 0x60),
         _ => normalize_ascii_like(ch),
     }
+}
+
+fn normalize_halfwidth_kana_char(ch: char) -> Option<char> {
+    let normalized = match ch {
+        '｡' => '.',
+        '､' => ',',
+        '･' => '/',
+        '｢' => '[',
+        '｣' => ']',
+        'ｰ' => '-',
+        'ｦ' => 'を',
+        'ｧ' => 'ぁ',
+        'ｨ' => 'ぃ',
+        'ｩ' => 'ぅ',
+        'ｪ' => 'ぇ',
+        'ｫ' => 'ぉ',
+        'ｬ' => 'ゃ',
+        'ｭ' => 'ゅ',
+        'ｮ' => 'ょ',
+        'ｯ' => 'っ',
+        'ｱ' => 'あ',
+        'ｲ' => 'い',
+        'ｳ' => 'う',
+        'ｴ' => 'え',
+        'ｵ' => 'お',
+        'ｶ' => 'か',
+        'ｷ' => 'き',
+        'ｸ' => 'く',
+        'ｹ' => 'け',
+        'ｺ' => 'こ',
+        'ｻ' => 'さ',
+        'ｼ' => 'し',
+        'ｽ' => 'す',
+        'ｾ' => 'せ',
+        'ｿ' => 'そ',
+        'ﾀ' => 'た',
+        'ﾁ' => 'ち',
+        'ﾂ' => 'つ',
+        'ﾃ' => 'て',
+        'ﾄ' => 'と',
+        'ﾅ' => 'な',
+        'ﾆ' => 'に',
+        'ﾇ' => 'ぬ',
+        'ﾈ' => 'ね',
+        'ﾉ' => 'の',
+        'ﾊ' => 'は',
+        'ﾋ' => 'ひ',
+        'ﾌ' => 'ふ',
+        'ﾍ' => 'へ',
+        'ﾎ' => 'ほ',
+        'ﾏ' => 'ま',
+        'ﾐ' => 'み',
+        'ﾑ' => 'む',
+        'ﾒ' => 'め',
+        'ﾓ' => 'も',
+        'ﾔ' => 'や',
+        'ﾕ' => 'ゆ',
+        'ﾖ' => 'よ',
+        'ﾗ' => 'ら',
+        'ﾘ' => 'り',
+        'ﾙ' => 'る',
+        'ﾚ' => 'れ',
+        'ﾛ' => 'ろ',
+        'ﾜ' => 'わ',
+        'ﾝ' => 'ん',
+        _ => return None,
+    };
+
+    Some(normalized)
+}
+
+fn apply_kana_voicing(ch: char) -> Option<char> {
+    let voiced = match ch {
+        'う' => 'ゔ',
+        'か' => 'が',
+        'き' => 'ぎ',
+        'く' => 'ぐ',
+        'け' => 'げ',
+        'こ' => 'ご',
+        'さ' => 'ざ',
+        'し' => 'じ',
+        'す' => 'ず',
+        'せ' => 'ぜ',
+        'そ' => 'ぞ',
+        'た' => 'だ',
+        'ち' => 'ぢ',
+        'つ' => 'づ',
+        'て' => 'で',
+        'と' => 'ど',
+        'は' => 'ば',
+        'ひ' => 'び',
+        'ふ' => 'ぶ',
+        'へ' => 'べ',
+        'ほ' => 'ぼ',
+        _ => return None,
+    };
+
+    Some(voiced)
+}
+
+fn apply_kana_handakuten(ch: char) -> Option<char> {
+    let handakuten = match ch {
+        'は' => 'ぱ',
+        'ひ' => 'ぴ',
+        'ふ' => 'ぷ',
+        'へ' => 'ぺ',
+        'ほ' => 'ぽ',
+        _ => return None,
+    };
+
+    Some(handakuten)
 }
 
 fn normalize_ascii_like(ch: char) -> Option<char> {
@@ -704,6 +1030,83 @@ fn normalize_ascii_like(ch: char) -> Option<char> {
     };
 
     Some(ascii)
+}
+
+/// `wasm-bindgen` wrapper for browser and JavaScript consumers.
+#[cfg(feature = "wasm-bindgen")]
+#[wasm_bindgen]
+pub struct WasmRomajiInput {
+    inner: RomajiInput,
+}
+
+#[cfg(feature = "wasm-bindgen")]
+#[wasm_bindgen]
+impl WasmRomajiInput {
+    /// Builds a matcher from hiragana or katakana text.
+    #[wasm_bindgen(constructor)]
+    pub fn new(target: &str) -> Self {
+        Self {
+            inner: RomajiInput::new(target),
+        }
+    }
+
+    /// Returns the normalized target.
+    pub fn target(&self) -> String {
+        self.inner.target().to_string()
+    }
+
+    /// Returns accepted keys typed so far.
+    pub fn typed(&self) -> String {
+        self.inner.typed().to_string()
+    }
+
+    /// Clears typed input and returns to the beginning.
+    pub fn reset(&mut self) {
+        self.inner.reset();
+    }
+
+    /// Returns true when the target has been completed.
+    pub fn is_completed(&self) -> bool {
+        self.inner.is_completed()
+    }
+
+    /// Tries to consume one one-character string.
+    pub fn input(&mut self, key: &str) -> KeyResult {
+        let mut chars = key.chars();
+        let Some(key) = chars.next() else {
+            return KeyResult::Rejected;
+        };
+        if chars.next().is_some() {
+            return KeyResult::Rejected;
+        }
+
+        self.inner.input(key)
+    }
+
+    /// Returns currently valid keys as a compact string.
+    pub fn next_keys(&self) -> String {
+        self.inner.next_keys().into_iter().collect()
+    }
+
+    /// Returns remaining romaji candidates separated by line feeds.
+    pub fn remaining_romaji_candidates(&self) -> String {
+        self.inner.remaining_romaji_candidates().join("\n")
+    }
+
+    /// Returns the number of confirmed normalized target characters.
+    pub fn confirmed_target_chars(&self) -> usize {
+        self.inner.confirmed_target_chars()
+    }
+
+    /// Returns a 0.0-1.0 completion ratio based on confirmed target chars.
+    pub fn progress_ratio(&self) -> f64 {
+        let progress = self.inner.progress();
+        if progress.total_target_chars == 0 {
+            1.0
+        } else {
+            progress.confirmed_target_chars as f64 / progress.total_target_chars as f64
+        }
+    }
 }
 
 #[cfg(test)]
@@ -840,6 +1243,73 @@ mod tests {
         assert_eq!(input.next_keys(), vec!['c', 's']);
         assert_eq!(input.input('s'), KeyResult::Accepted);
         assert_eq!(input.next_keys(), vec!['h', 'i']);
+    }
+
+    #[test]
+    fn exposes_progress_snapshot() {
+        let mut input = RomajiInput::new("しゃ");
+
+        assert_eq!(
+            input.progress(),
+            Progress {
+                confirmed_target_chars: 0,
+                total_target_chars: 2,
+                typed_keys: 0,
+                completed: false,
+            }
+        );
+
+        assert_eq!(input.input_str("sha"), Ok(KeyResult::Completed));
+        assert_eq!(
+            input.progress(),
+            Progress {
+                confirmed_target_chars: 2,
+                total_target_chars: 2,
+                typed_keys: 3,
+                completed: true,
+            }
+        );
+    }
+
+    #[test]
+    fn exposes_remaining_romaji_candidates() {
+        let mut input = RomajiInput::new("し");
+
+        assert_eq!(
+            input.remaining_romaji_candidates(),
+            vec!["ci".to_string(), "shi".to_string(), "si".to_string()]
+        );
+
+        assert_eq!(input.input('s'), KeyResult::Accepted);
+        assert_eq!(
+            input.remaining_romaji_candidates(),
+            vec!["hi".to_string(), "i".to_string()]
+        );
+    }
+
+    #[test]
+    fn typing_session_tracks_misses_and_history() {
+        let mut session = TypingSession::new("か");
+
+        assert_eq!(session.input('x'), KeyResult::Rejected);
+        assert_eq!(session.input('k'), KeyResult::Accepted);
+        assert_eq!(session.input('a'), KeyResult::Completed);
+
+        assert_eq!(session.misses(), 1);
+        assert_eq!(session.matcher().typed(), "ka");
+        assert_eq!(session.history().len(), 3);
+        assert_eq!(session.history()[0].original, 'x');
+        assert_eq!(session.history()[0].normalized, None);
+        assert_eq!(session.history()[1].normalized, Some('k'));
+    }
+
+    #[test]
+    fn accepts_wi_we_and_halfwidth_kana() {
+        assert!(matches_romaji("ゐゑ", "wiwe"));
+        assert!(matches_romaji("ヰヱ", "wiwe"));
+        assert!(matches_romaji("ﾊﾟｰﾃｨｰ", "pa-thi-"));
+        assert!(matches_romaji("ｳﾞｧｲｵﾘﾝ", "vaiorinn"));
+        assert!(matches_romaji("｢Rust｣", "[rust]"));
     }
 
     #[test]
