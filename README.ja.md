@@ -1,8 +1,37 @@
 # daken-rs
 
+[![Crates.io](https://img.shields.io/crates/v/daken-rs.svg)](https://crates.io/crates/daken-rs)
+[![Docs.rs](https://docs.rs/daken-rs/badge.svg)](https://docs.rs/daken-rs)
+
 [English README](README.md)
 
 日本語タイピングゲーム向けの、ローマ字入力判定エンジンです。
+
+## インストール
+
+Cargo で追加できます。
+
+```bash
+cargo add daken-rs
+```
+
+または `Cargo.toml` に直接追加します。
+
+```toml
+[dependencies]
+daken-rs = "0.2"
+```
+
+必要に応じて optional feature も有効化できます。
+
+```toml
+[dependencies]
+daken-rs = { version = "0.2", features = ["serde", "wasm-bindgen"] }
+```
+
+パッケージ名は `daken-rs`、Rust コード上の import path は `daken_rs` です。
+
+## クイックスタート
 
 ```rust
 use daken_rs::{KeyResult, RomajiInput};

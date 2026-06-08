@@ -1,8 +1,37 @@
 # daken-rs
 
+[![Crates.io](https://img.shields.io/crates/v/daken-rs.svg)](https://crates.io/crates/daken-rs)
+[![Docs.rs](https://docs.rs/daken-rs/badge.svg)](https://docs.rs/daken-rs)
+
 [日本語 README](README.ja.md)
 
 Typing-game friendly romaji input matcher for Japanese kana text.
+
+## Installation
+
+Add the crate with Cargo:
+
+```bash
+cargo add daken-rs
+```
+
+Or add it to `Cargo.toml` manually:
+
+```toml
+[dependencies]
+daken-rs = "0.2"
+```
+
+Enable optional features when needed:
+
+```toml
+[dependencies]
+daken-rs = { version = "0.2", features = ["serde", "wasm-bindgen"] }
+```
+
+The package name is `daken-rs`, and the Rust import path is `daken_rs`.
+
+## Quick Start
 
 ```rust
 use daken_rs::{KeyResult, RomajiInput};
